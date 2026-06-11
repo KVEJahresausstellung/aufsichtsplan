@@ -1,60 +1,252 @@
-const SHEET_NAME = 'Tabelle1';
-
-function doGet(e) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
-  const params = e.parameter;
-  const action = params.action;
-  const callback = params.callback || 'callback';
-
-  let result;
-
-  if (action === 'read') {
-    const data = sheet.getDataRange().getValues();
-    const rows = [];
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][0]) {
-        rows.push({
-          tag: String(data[i][0]),
-          schicht: String(data[i][1]),
-          platz1: String(data[i][2] || ''),
-          platz2: String(data[i][3] || '')
-        });
-      }
-    }
-    result = JSON.stringify({ ok: true, data: rows });
-
-  } else if (action === 'write') {
-    const tag = params.tag;
-    const schicht = params.schicht;
-    const platz = parseInt(params.platz);
-    const name = params.name || '';
-
-    const data = sheet.getDataRange().getValues();
-    let rowIndex = -1;
-
-    for (let i = 1; i < data.length; i++) {
-      if (String(data[i][0]) === tag && String(data[i][1]) === schicht) {
-        rowIndex = i + 1;
-        break;
-      }
-    }
-
-    if (rowIndex === -1) {
-      const newRow = [tag, schicht, '', '', new Date().toISOString()];
-      newRow[platz + 1] = name;
-      sheet.appendRow(newRow);
-    } else {
-      sheet.getRange(rowIndex, platz + 1).setValue(name);
-      sheet.getRange(rowIndex, 5).setValue(new Date().toISOString());
-    }
-
-    result = JSON.stringify({ ok: true });
-
-  } else {
-    result = JSON.stringify({ ok: false, error: 'Unknown action' });
-  }
-
-  return ContentService
-    .createTextOutput(callback + '(' + result + ')')
-    .setMimeType(ContentService.MimeType.JAVASCRIPT);
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aufsichtsplan | Jahresausstellung Kunstverein Erding e.V. | Im Farbenrausch | 01.–16.08.2026</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  background: linear-gradient(135deg, #1a0533 0%, #0d1f3c 40%, #003322 100%);
+  min-height: 100vh;
+  padding: 2rem;
 }
+h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 1rem;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.4);
+}
+.plan {
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  padding: 14px;
+  gap: 10px;
+  background: linear-gradient(120deg, #e040fb, #ff6d00, #ffeb3b, #00e676, #00b0ff, #7c4dff, #f50057, #76ff03, #ff9100, #00e5ff);
+  background-size: 400% 400%;
+  animation: rainbow 12s ease infinite;
+  border-radius: 14px;
+}
+@keyframes rainbow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.day-card {
+  border-radius: 10px;
+  padding: 12px 10px 14px;
+  min-width: 178px;
+  flex: 0 0 178px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.day-card:nth-child(8n+1) { background: rgba(224,64,251,0.92); }
+.day-card:nth-child(8n+2) { background: rgba(255,109,0,0.92); }
+.day-card:nth-child(8n+3) { background: rgba(0,176,255,0.92); }
+.day-card:nth-child(8n+4) { background: rgba(0,200,100,0.92); }
+.day-card:nth-child(8n+5) { background: rgba(220,180,0,0.92); }
+.day-card:nth-child(8n+6) { background: rgba(124,77,255,0.92); }
+.day-card:nth-child(8n+7) { background: rgba(245,0,87,0.92); }
+.day-card:nth-child(8n+8) { background: rgba(255,145,0,0.92); }
+.day-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  padding-bottom: 8px;
+  border-bottom: 1.5px solid rgba(255,255,255,0.4);
+  line-height: 1.4;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.shift {
+  background: rgba(0,0,0,0.22);
+  border-radius: 8px;
+  padding: 8px 8px 10px;
+}
+.shift-time {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 7px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+.slot { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; }
+.slot:last-child { margin-bottom: 0; }
+.slot-num { font-size: 11px; color: rgba(255,255,255,0.6); min-width: 12px; }
+.slot input {
+  flex: 1;
+  font-size: 12px;
+  padding: 5px 7px;
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 6px;
+  background: #fff;
+  color: #111;
+  min-width: 0;
+  font-family: inherit;
+}
+.slot input:focus { outline: none; border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.4); }
+.slot input:disabled { background: #eee; color: #888; cursor: not-allowed; }
+.status {
+  font-size: 12px;
+  color: rgba(255,255,255,0.8);
+  margin-bottom: 1rem;
+  min-height: 18px;
+}
+.actions { display: flex; gap: 10px; margin-top: 1.5rem; flex-wrap: wrap; }
+button {
+  font-size: 13px;
+  font-family: inherit;
+  padding: 8px 18px;
+  border: 1.5px solid rgba(255,255,255,0.5);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 500;
+}
+button:hover { background: rgba(255,255,255,0.22); }
+button:active { transform: scale(0.98); }
+.note { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 0.75rem; min-height: 18px; }
+@media print {
+  body { padding: 0.5rem; background: white; }
+  .actions, .note, .status { display: none; }
+  .plan { overflow: visible; flex-wrap: wrap; animation: none; background: #eee; }
+  .day-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+</style>
+</head>
+<body>
+<h1>Aufsichtsplan | Jahresausstellung Kunstverein Erding e.V. | Im Farbenrausch | 01.–16.08.2026</h1>
+<div class="status" id="status">⏳ Daten werden geladen …</div>
+<div class="plan" id="plan"></div>
+<div class="actions">
+  <button onclick="loadData()">&#8635; Aktualisieren</button>
+  <button onclick="window.print()">&#128438; Drucken</button>
+</div>
+<div class="note" id="note"></div>
+
+<script>
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwdxGsD5WG3M_bNTlMCH5CHqnx4nWkzVc72dZ_pBPwUpk52Eb4fbFFq-tYR0nXFwZPs/exec';
+const WD = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+const SHIFTS = ['13:00 – 16:00 Uhr','16:00 – 19:00 Uhr'];
+
+const days = [];
+for (let i = 0; i < 16; i++) {
+  const d = new Date(2026, 7, 1 + i);
+  days.push({
+    date: d,
+    label: WD[d.getDay()] + '\n' + String(d.getDate()).padStart(2,'0') + '.' + String(d.getMonth()+1).padStart(2,'0') + '.2026'
+  });
+}
+
+let state = {};
+
+function tagKey(di) {
+  const lines = days[di].label.split('\n');
+  return lines[1] + ' ' + lines[0];
+}
+
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+function setNote(msg, timeout=3000) {
+  document.getElementById('note').textContent = msg;
+  if (timeout) setTimeout(() => document.getElementById('note').textContent = '', timeout);
+}
+
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cb = 'cb_' + Date.now();
+    const script = document.createElement('script');
+    window[cb] = data => {
+      delete window[cb];
+      document.body.removeChild(script);
+      resolve(data);
+    };
+    script.onerror = () => {
+      delete window[cb];
+      document.body.removeChild(script);
+      reject(new Error('JSONP Fehler'));
+    };
+    script.src = url + '&callback=' + cb;
+    document.body.appendChild(script);
+  });
+}
+
+async function loadData() {
+  setStatus('⏳ Daten werden geladen …');
+  try {
+    const json = await jsonp(SCRIPT_URL + '?action=read');
+    state = {};
+    json.data.forEach(row => {
+      if (!state[row.tag]) state[row.tag] = {};
+      state[row.tag][row.schicht] = { platz1: row.platz1 || '', platz2: row.platz2 || '' };
+    });
+    render();
+    setStatus('✅ Zuletzt aktualisiert: ' + new Date().toLocaleTimeString('de-DE'));
+  } catch(e) {
+    setStatus('⚠️ Laden fehlgeschlagen — bitte Seite neu laden');
+  }
+}
+
+async function saveSlot(di, si, platz, name) {
+  const tag = tagKey(di);
+  const schicht = SHIFTS[si];
+  const url = SCRIPT_URL + '?action=write'
+    + '&tag=' + encodeURIComponent(tag)
+    + '&schicht=' + encodeURIComponent(schicht)
+    + '&platz=' + platz
+    + '&name=' + encodeURIComponent(name);
+  try {
+    await jsonp(url);
+    setNote('✅ Gespeichert');
+  } catch(e) {
+    setNote('⚠️ Speichern fehlgeschlagen — bitte nochmal versuchen');
+  }
+}
+
+function render() {
+  const plan = document.getElementById('plan');
+  plan.innerHTML = '';
+  days.forEach((day, di) => {
+    const card = document.createElement('div');
+    card.className = 'day-card';
+    const lines = day.label.split('\n');
+    card.innerHTML = '<div class="day-label">' + lines[0] + '<br>' + lines[1] + '</div>';
+
+    SHIFTS.forEach((sh, si) => {
+      const tag = tagKey(di);
+      const saved = (state[tag] && state[tag][sh]) ? state[tag][sh] : { platz1: '', platz2: '' };
+
+      const shDiv = document.createElement('div');
+      shDiv.className = 'shift';
+      shDiv.innerHTML = '<div class="shift-time">' + sh + '</div>';
+
+      [1, 2].forEach(platz => {
+        const slot = document.createElement('div');
+        slot.className = 'slot';
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.placeholder = 'Name';
+        inp.value = saved['platz' + platz] || '';
+        let timer;
+        inp.addEventListener('input', e => {
+          clearTimeout(timer);
+          timer = setTimeout(() => saveSlot(di, si, platz, e.target.value), 800);
+        });
+        slot.innerHTML = '<span class="slot-num">' + platz + '</span>';
+        slot.appendChild(inp);
+        shDiv.appendChild(slot);
+      });
+      card.appendChild(shDiv);
+    });
+    plan.appendChild(card);
+  });
+}
+
+loadData();
+</script>
+</body>
+</html>
